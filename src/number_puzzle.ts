@@ -1,9 +1,10 @@
-import { Option, instanceOf, Vector, Stream, TypeGuard } from "prelude.ts";
+import { Option, instanceOf, Vector, Stream, HashSet, TypeGuard } from "prelude.ts";
 
 const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
-const HINTS_SPACING_X = 10;
+const HINTS_SPACING_X = 20;
 const FONT = "33px Arial";
+const CANVAS_PADDING_PX = 30;
 
 type Point={x:number,y:number};
 type Vec=[Point,Point];
@@ -23,14 +24,12 @@ type Polygon=Point[];
 // the first row starts are (x,y) 1,0
 // second row: (0.5, 1)
 // third row: (0, 2), ...
-// every x moved 0.5 to the right to avoid having the
-// leftmost pixels cropped out.
 const rows = Vector.of(
-    { x: 1.5, items: 3},
-    { x: 1, items: 4},
-    { x: 0.5, items: 5},
-    { x: 1, items: 4},
-    { x: 1.5, items: 3}
+    { x: 1, items: 3},
+    { x: 0.5, items: 4},
+    { x: 0, items: 5},
+    { x: 0.5, items: 4},
+    { x: 1, items: 3}
 );
 const cellCount = rows.sumOn(cur=>cur.items);
 
@@ -106,8 +105,8 @@ function drawTile(ctx: CanvasRenderingContext2D,
 
 function drawTileInBoard(ctx: CanvasRenderingContext2D,
                          value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
-    const xOffset = CELL_WIDTH_PX*x;
-    const yOffset = 3*CELL_WIDTH_PX/4*y;
+    const xOffset = CELL_WIDTH_PX*x + CANVAS_PADDING_PX;
+    const yOffset = 3*CELL_WIDTH_PX/4*y + CANVAS_PADDING_PX;
     return drawTile(ctx, value, isSelected, xOffset, yOffset);
 }
 
@@ -118,21 +117,66 @@ function drawAndCheckForWin(canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
     return {boardPolygons, tilePolygons: drawTiles(ctx, options)};
 }
 
-function computeDrawRowTotal(ctx: CanvasRenderingContext2D, rowIdx: number,
-                      row: {x:number,items:number}, options?: {skipTile:number}): number {
-    const rowTotal = appState.tilePositions
+const allDiagonal1Indexes = Vector.of(
+    HashSet.of(7, 12, 16),
+    HashSet.of(3, 8, 13, 17),
+    HashSet.of(0, 4, 9, 14, 18),
+    HashSet.of(1, 5, 10, 15),
+    HashSet.of(2, 6, 11));
+
+function drawTotalCheckDisqualifiesWin(
+    ctx: CanvasRenderingContext2D, rowIdx: number,
+    row: {x:number,items:number}, options?: {skipTile:number}): boolean {
+    const positionsToConsider = appState.tilePositions
         .zipWithIndex()
         .filter(tileWithIndex => options ? options.skipTile !== tileWithIndex[1] : true)
-        .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"))
+        .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"));
+
+    const drawTotal = (val:number) => {
+        ctx.fillStyle = val === 38 ? "green" : (val > 38 ? "red" : "orange");
+        ctx.fillText(val+"",
+                     HINTS_SPACING_X,
+                     TEXT_VERTICAL_OFFSET);
+    };
+
+    // horizontal totals
+    const rowTotal = positionsToConsider
         .filter(p => cellIdxGetRowCol(p[0].cellIdx)[0] === rowIdx)
         .sumOn(p => p[1]+1);
     if (appState.displayHints) {
-        ctx.fillStyle = rowTotal === 38 ? "green" : (rowTotal > 38 ? "red" : "orange");
-        ctx.fillText(rowTotal+"",
-                     (row.x+row.items)*CELL_WIDTH_PX+HINTS_SPACING_X,
-                     rowIdx*(CELL_WIDTH_PX*3/4)+TEXT_VERTICAL_OFFSET);
+        ctx.save();
+        ctx.translate((row.x+row.items)*CELL_WIDTH_PX+CANVAS_PADDING_PX,
+                      rowIdx*(CELL_WIDTH_PX*3/4)+CANVAS_PADDING_PX);
+        ctx.beginPath();
+        ctx.moveTo(5, CELL_WIDTH_PX/2);
+        ctx.lineTo(15, CELL_WIDTH_PX/2);
+        ctx.stroke();
+        drawTotal(rowTotal);
+        ctx.restore();
     }
-    return rowTotal;
+
+    // top-left->bottom right totals
+    const diag1indexes = allDiagonal1Indexes.get(rowIdx).getOrThrow();
+    const diag1Total = positionsToConsider
+        .filter(p => diag1indexes.contains(p[0].cellIdx))
+        .sumOn(p => p[1]+1);
+    if (appState.displayHints) {
+        ctx.save();
+        const [row,col] = cellIdxGetRowCol(
+            allDiagonal1Indexes.get(rowIdx).getOrThrow().toArray({sortOn:x=>x})[0]);
+        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_PX,
+                      row*(CELL_WIDTH_PX*3/4)-CELL_WIDTH_PX/2+CANVAS_PADDING_PX);
+        ctx.beginPath();
+        const metrics = ctx.measureText(diag1Total+"");
+        ctx.moveTo(HINTS_SPACING_X+metrics.width+5, CELL_WIDTH_PX/2);
+        ctx.lineTo(HINTS_SPACING_X+metrics.width+5+CELL_WIDTH_PX/2, CELL_WIDTH_PX);
+        ctx.stroke();
+        drawTotal(diag1Total);
+        ctx.restore();
+    }
+
+    return rowTotal !== diag1Total ||
+        diag1Total !== 38;
 }
 
 function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
@@ -145,9 +189,9 @@ function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipT
                 ctx, undefined,
                 false, row.x+i, rowIdx));
         }
-        if (computeDrawRowTotal(ctx, rowIdx, row, options) !== 38) {
-            isWin = false;
-        }
+        // order matters otherwise he doesn't execute the drawing if the previous
+        // row already guaranteed a loss
+        isWin = (!drawTotalCheckDisqualifiesWin(ctx, rowIdx, row, options)) && isWin;
         ++rowIdx;
     }
     if (isWin) {
@@ -232,10 +276,15 @@ function getSelected(polygons: Polygon[], x:number, y:number): number|undefined 
     return undefined;
 }
 
-function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
-                     canvas: HTMLCanvasElement, event: MouseEvent) {
+function getOnCanvasXY(canvas: HTMLCanvasElement, event: MouseEvent): [number,number] {
     const x = event.pageX - canvas.offsetLeft;
     const y = event.pageY - canvas.offsetTop;
+    return [x,y];
+}
+
+function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
+                     canvas: HTMLCanvasElement, event: MouseEvent) {
+    const [x,y] = getOnCanvasXY(canvas, event);
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
     if (appState.selectedPolygon !== undefined) {
     // repaint the backbuffer without the selected tile
@@ -248,16 +297,14 @@ function onMove(backBuffer: HTMLCanvasElement, canvas: HTMLCanvasElement, ctx: C
     if (appState.selectedPolygon === undefined) {
         return;
     }
-    const x = event.pageX - canvas.offsetLeft;
-    const y = event.pageY - canvas.offsetTop;
+    const [x,y] = getOnCanvasXY(canvas, event);
     ctx.drawImage(backBuffer, 0, 0);
     drawTile(ctx, appState.selectedPolygon+1, false, x-CELL_WIDTH_PX/2, y-CELL_WIDTH_PX/2);
 }
 
 function onClick(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
                  canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
-    const x = event.pageX - canvas.offsetLeft;
-    const y = event.pageY - canvas.offsetTop;
+    const [x,y] = getOnCanvasXY(canvas, event);
     const wasSelected = appState.selectedPolygon;
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
     const clickedBoardCell = appState.selectedPolygon !== undefined ? undefined :
