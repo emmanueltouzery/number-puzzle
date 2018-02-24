@@ -1,7 +1,8 @@
-import { Option, instanceOf, Vector, Stream } from "prelude.ts";
+import { Option, instanceOf, Vector, Stream, TypeGuard } from "prelude.ts";
 
 const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
+const HINTS_SPACING_X = 10;
 const FONT = "33px Arial";
 
 type Point={x:number,y:number};
@@ -110,20 +111,42 @@ function drawTileInBoard(ctx: CanvasRenderingContext2D,
 function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, options?: {skipTile: number}): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const boardPolygons = drawBoard(ctx);
+    const boardPolygons = drawBoard(ctx, options);
     return {boardPolygons, tilePolygons: drawTiles(ctx, options)};
 }
 
-function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
+function drawRowTotal(ctx: CanvasRenderingContext2D, rowIdx: number,
+                      row: {x:number,items:number}, options?: {skipTile:number}): number {
+    const rowTotal = appState.tilePositions
+        .zipWithIndex()
+        .filter(tileWithIndex => options ? options.skipTile !== tileWithIndex[1] : true)
+        .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"))
+        .filter(p => cellIdxGetRowCol(p[0].cellIdx)[0] === rowIdx)
+        .sumOn(p => p[1]+1);
+    ctx.fillStyle = rowTotal === 38 ? "green" : (rowTotal > 38 ? "red" : "orange");
+    ctx.fillText(rowTotal+"",
+                 (row.x+row.items)*CELL_WIDTH_PX+HINTS_SPACING_X,
+                 rowIdx*(CELL_WIDTH_PX*3/4)+TEXT_VERTICAL_OFFSET);
+    return rowTotal;
+}
+
+function drawBoard(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
     let polygons = [];
     let rowIdx = 0;
+    let isWin = true;
     for (const row of rows) {
         for (let i=0;i<row.items;i++) {
             polygons.push(drawTileInBoard(
                 ctx, undefined,
                 false, row.x+i, rowIdx));
         }
+        if (drawRowTotal(ctx, rowIdx, row, options) !== 38) {
+            isWin = false;
+        }
         ++rowIdx;
+    }
+    if (isWin) {
+        alert("Bravo!");
     }
     return polygons;
 }
