@@ -5,6 +5,7 @@ const TEXT_VERTICAL_OFFSET = 55;
 const HINTS_SPACING_X = 20;
 const FONT = "33px Arial";
 const CANVAS_PADDING_PX = 30;
+const WINNING_TOTAL = 38;
 
 type Point={x:number,y:number};
 type Vec=[Point,Point];
@@ -63,7 +64,8 @@ function cellIdxGetRowCol(cellIdx: number): [number,number] {
 }
 
 function drawTile(ctx: CanvasRenderingContext2D,
-                    value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
+                  value: number|undefined, isInWinningDiagonal: boolean,
+                  x: number, y: number): Polygon {
     let polygon:Point[] = [];
     ctx.save();
     ctx.translate(x, y);
@@ -88,10 +90,11 @@ function drawTile(ctx: CanvasRenderingContext2D,
     ctx.closePath();
     ctx.stroke();
 
-    ctx.fillStyle = isSelected ? "red" : "white";
+    ctx.fillStyle = "white";
     ctx.fill();
-    ctx.fillStyle = "black";
 
+    ctx.fillStyle = appState.displayHints ?
+        (isInWinningDiagonal ? "blue" : "black") : "black";
     if (value !== undefined) {
         const text = value+"";
         const metrics = ctx.measureText(text);
@@ -104,17 +107,18 @@ function drawTile(ctx: CanvasRenderingContext2D,
 }
 
 function drawTileInBoard(ctx: CanvasRenderingContext2D,
-                         value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
+                         value: number|undefined, isInWinningDiagonal: boolean,
+                         x: number, y: number): Polygon {
     const xOffset = CELL_WIDTH_PX*x + CANVAS_PADDING_PX;
     const yOffset = 3*CELL_WIDTH_PX/4*y + CANVAS_PADDING_PX;
-    return drawTile(ctx, value, isSelected, xOffset, yOffset);
+    return drawTile(ctx, value, isInWinningDiagonal, xOffset, yOffset);
 }
 
 function drawAndCheckForWin(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, options?: {skipTile: number}): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const boardPolygons = drawBoardAndCheckForWin(ctx, options);
-    return {boardPolygons, tilePolygons: drawTiles(ctx, options)};
+    const {boardPolygons,allItemsInWinningDiagonals} = drawBoardAndCheckForWin(ctx, options);
+    return {boardPolygons, tilePolygons: drawTiles(ctx, allItemsInWinningDiagonals, options)};
 }
 
 const allDiagonal1Indexes = Vector.of(
@@ -133,18 +137,20 @@ const allDiagonal2Indexes = Vector.of(
 
 function drawTotalCheckDisqualifiesWin(
     ctx: CanvasRenderingContext2D, rowIdx: number,
-    row: {x:number,items:number}, options?: {skipTile:number}): boolean {
+    row: {x:number,items:number}, options?: {skipTile:number}): {preventsWin:boolean,itemsInWinningDiagonals:HashSet<number>} {
     const positionsToConsider = appState.tilePositions
         .zipWithIndex()
         .filter(tileWithIndex => options ? options.skipTile !== tileWithIndex[1] : true)
         .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"));
 
     const drawTotal = (val:number) => {
-        ctx.fillStyle = val === 38 ? "green" : (val > 38 ? "red" : "orange");
+        ctx.fillStyle = val === WINNING_TOTAL ? "green" : (val > WINNING_TOTAL ? "red" : "orange");
         ctx.fillText(val+"",
                      HINTS_SPACING_X,
                      TEXT_VERTICAL_OFFSET);
     };
+
+    let itemsInWinningDiagonals = HashSet.empty<number>();
 
     // horizontal totals
     const rowTotal = positionsToConsider
@@ -160,6 +166,12 @@ function drawTotalCheckDisqualifiesWin(
         ctx.stroke();
         drawTotal(rowTotal);
         ctx.restore();
+    }
+    if (rowTotal === WINNING_TOTAL) {
+        itemsInWinningDiagonals = itemsInWinningDiagonals.addAll(
+            positionsToConsider
+                .filter(p => cellIdxGetRowCol(p[0].cellIdx)[0] === rowIdx)
+                .map(p => p[0].cellIdx));
     }
 
     // top-left->bottom right totals
@@ -181,6 +193,12 @@ function drawTotalCheckDisqualifiesWin(
         drawTotal(diag1Total);
         ctx.restore();
     }
+    if (diag1Total === WINNING_TOTAL) {
+        itemsInWinningDiagonals = itemsInWinningDiagonals.addAll(
+            positionsToConsider
+                .filter(p => diag1indexes.contains(p[0].cellIdx))
+                .map(p => p[0].cellIdx));
+    }
 
     // top-right->bottom left totals
     const diag2indexes = allDiagonal2Indexes.get(rowIdx).getOrThrow();
@@ -201,34 +219,47 @@ function drawTotalCheckDisqualifiesWin(
         drawTotal(diag2Total);
         ctx.restore();
     }
+    if (diag2Total === WINNING_TOTAL) {
+        itemsInWinningDiagonals = itemsInWinningDiagonals.addAll(
+            positionsToConsider
+                .filter(p => diag2indexes.contains(p[0].cellIdx))
+                .map(p => p[0].cellIdx));
+    }
 
-    return rowTotal !== diag1Total ||
-        diag1Total !== 38 ||
-        diag2Total !== 38;
+    const preventsWin = rowTotal !== diag1Total ||
+        diag1Total !== WINNING_TOTAL ||
+        diag2Total !== WINNING_TOTAL;
+    return {preventsWin, itemsInWinningDiagonals};
 }
 
-function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
+function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipTile: number})
+: { boardPolygons: Polygon[], allItemsInWinningDiagonals:HashSet<number>} {
     let polygons = [];
     let rowIdx = 0;
     let isWin = true;
+    let allItemsInWinningDiagonals = HashSet.empty<number>();
     for (const row of rows) {
         for (let i=0;i<row.items;i++) {
             polygons.push(drawTileInBoard(
                 ctx, undefined,
                 false, row.x+i, rowIdx));
         }
-        // order matters otherwise he doesn't execute the drawing if the previous
-        // row already guaranteed a loss
-        isWin = (!drawTotalCheckDisqualifiesWin(ctx, rowIdx, row, options)) && isWin;
+        const {preventsWin, itemsInWinningDiagonals} =
+            drawTotalCheckDisqualifiesWin(ctx, rowIdx, row, options);
+        allItemsInWinningDiagonals =
+            allItemsInWinningDiagonals.addAll(itemsInWinningDiagonals);
+        isWin = (!preventsWin) && isWin;
         ++rowIdx;
     }
     if (isWin) {
         alert("Bravo!");
     }
-    return polygons;
+    return {boardPolygons:polygons,allItemsInWinningDiagonals};
 }
 
-function drawTiles(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
+function drawTiles(ctx: CanvasRenderingContext2D,
+                   allItemsInWinningDiagonals: HashSet<number>,
+                   options?: {skipTile: number}): Polygon[] {
     let polygons = [];
     for (let tileIdx=0; tileIdx<appState.tilePositions.length(); tileIdx++) {
         if (options && tileIdx === options.skipTile) {
@@ -240,11 +271,12 @@ function drawTiles(ctx: CanvasRenderingContext2D, options?: {skipTile: number}):
             const row = rows.get(rowIdx).getOrThrow();
             polygons.push(
                 drawTileInBoard(ctx, tileIdx+1,
-                           appState.selectedPolygon===tileIdx, row.x+colIdx, rowIdx));
+                                allItemsInWinningDiagonals.contains(tile.cellIdx),
+                                row.x+colIdx, rowIdx));
         } else {
             polygons.push(
                 drawTile(ctx, tileIdx+1,
-                           appState.selectedPolygon===tileIdx, tile.pos.x, tile.pos.y));
+                           false, tile.pos.x, tile.pos.y));
         }
     }
     return polygons;
