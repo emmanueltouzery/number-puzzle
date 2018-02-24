@@ -23,12 +23,14 @@ type Polygon=Point[];
 // the first row starts are (x,y) 1,0
 // second row: (0.5, 1)
 // third row: (0, 2), ...
+// every x moved 0.5 to the right to avoid having the
+// leftmost pixels cropped out.
 const rows = Vector.of(
-    { x: 1, items: 3},
-    { x: 0.5, items: 4},
-    { x: 0, items: 5},
-    { x: 0.5, items: 4},
-    { x: 1, items: 3}
+    { x: 1.5, items: 3},
+    { x: 1, items: 4},
+    { x: 0.5, items: 5},
+    { x: 1, items: 4},
+    { x: 1.5, items: 3}
 );
 const cellCount = rows.sumOn(cur=>cur.items);
 
