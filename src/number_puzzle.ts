@@ -44,18 +44,13 @@ interface InBoardPosition {kind:"in_board", cellIdx:number};
 interface OutOfBoardPosition {kind:"out_of_board", pos:Point};
 type TilePosition = InBoardPosition | OutOfBoardPosition;
 
-interface AppState {
-    boardContents: Vector<TilePosition>;
-    polygons: Polygon[];
-    selectedPolygon: number|undefined;
-}
-
-let appState: AppState = {
-    boardContents: Stream.iterate(0,i=>i+1)
+let appState = {
+    // initialize with items at random positions on the board
+    tilePositions: Stream.iterate(0,i=>i+1)
         .take(cellCount).shuffle()
         .map<TilePosition>(x => ({kind:"in_board",cellIdx:x})).toVector(),
-    polygons: [],
-    selectedPolygon: undefined
+    polygons: <Polygon[]>[],
+    selectedPolygon: <number|undefined>undefined
 };
 
 function cellIdxGetRowCol(cellIdx: number): [number,number] {
@@ -111,7 +106,9 @@ function drawTileInBoard(ctx: CanvasRenderingContext2D,
     return drawTile(ctx, value, isSelected, xOffset, yOffset);
 }
 
-function draw(ctx: CanvasRenderingContext2D): Polygon[] {
+function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): Polygon[] {
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawBoard(ctx);
     return drawTiles(ctx);
 }
@@ -128,22 +125,20 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
 }
 
 function drawTiles(ctx: CanvasRenderingContext2D): Polygon[] {
-    let idx = 0;
     let polygons = [];
-    for (let tileIdx=0; tileIdx<appState.boardContents.length(); tileIdx++) {
-        const tile = appState.boardContents.get(tileIdx).getOrThrow();
+    for (let tileIdx=0; tileIdx<appState.tilePositions.length(); tileIdx++) {
+        const tile = appState.tilePositions.get(tileIdx).getOrThrow();
         if (tile.kind === "in_board") {
             const [rowIdx,colIdx] = cellIdxGetRowCol(tile.cellIdx);
             const row = rows.get(rowIdx).getOrThrow();
             polygons.push(
-                drawTileInBoard(ctx, idx+1,
-                           appState.selectedPolygon===idx, row.x+colIdx, rowIdx));
+                drawTileInBoard(ctx, tileIdx+1,
+                           appState.selectedPolygon===tileIdx, row.x+colIdx, rowIdx));
         } else {
             polygons.push(
-                drawTile(ctx, idx+1,
-                           appState.selectedPolygon===idx, tile.pos.x, tile.pos.y));
+                drawTile(ctx, tileIdx+1,
+                           appState.selectedPolygon===tileIdx, tile.pos.x, tile.pos.y));
         }
-        ++idx;
     }
     return polygons;
 }
@@ -210,13 +205,23 @@ function onClick(canvas: HTMLCanvasElement) {
             appState.selectedPolygon = undefined;
         } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
             // user wanted to move the selected polygon to another spot
-            // TODO could be in the board...
-            appState = {...appState, boardContents : appState.boardContents
-                        .replace(wasSelected,
-                                 { kind: "out_of_board",
-                                   pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}})};
+            const newBoard =  appState.tilePositions
+                .replace(wasSelected,
+                         { kind: "out_of_board",
+                           pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}});
+            appState.tilePositions = newBoard;
+        } else if (wasSelected !== undefined && appState.selectedPolygon !== undefined) {
+            // user clicked on another tile tile. switch them
+            const myPos = appState.tilePositions.get(wasSelected).getOrThrow();
+            const hisPos = appState.tilePositions.get(appState.selectedPolygon).getOrThrow();
+            const newBoard = appState.tilePositions
+                .replace(wasSelected, hisPos)
+                .replace(appState.selectedPolygon, myPos);
+            appState.tilePositions = newBoard;
+            appState.selectedPolygon = undefined;
         }
-        draw(Option.ofNullable(canvas.getContext("2d"))
+        // TODO tile was outside of board, is moved in board
+        appState.polygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
                   .getOrThrow("onClick: failed to get the canvas context"));
     };
 }
@@ -232,5 +237,5 @@ window.onload = () => {
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
 
-    appState.polygons = draw(ctx);
+    appState.polygons = draw(canvas, ctx);
 };
