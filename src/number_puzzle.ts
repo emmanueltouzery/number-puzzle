@@ -23,11 +23,11 @@ type Polygon=Point[];
 // second row: (0.5, 1)
 // third row: (0, 2), ...
 const rows = Vector.of(
-    { x: 1, y: 0, items: 3}, // get rid of y?
-    { x: 0.5, y: 1, items: 4},
-    { x: 0, y: 2, items: 5},
-    { x: 0.5, y: 3, items: 4},
-    { x: 1, y: 4, items: 3}
+    { x: 1, items: 3},
+    { x: 0.5, items: 4},
+    { x: 0, items: 5},
+    { x: 0.5, items: 4},
+    { x: 1, items: 3}
 );
 const cellCount = rows.sumOn(cur=>cur.items);
 
@@ -63,15 +63,13 @@ function cellIdxGetRowCol(cellIdx: number): [number,number] {
     return [rowsBefore.length()-1, cellIdx-rowsBefore.last().getOrThrow()];
 }
 
-function drawCellAt(ctx: CanvasRenderingContext2D,
+function drawTile(ctx: CanvasRenderingContext2D,
                     value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
     let polygon:Point[] = [];
     ctx.save();
-    const xOffset = CELL_WIDTH_PX*x;
-    const yOffset = 3*CELL_WIDTH_PX/4*y;
-    ctx.translate(xOffset, yOffset);
+    ctx.translate(x, y);
     const translate = (inputX:number,inputY:number) =>
-        ({x: inputX+xOffset, y: inputY+yOffset});
+        ({x: inputX+x, y: inputY+y});
 
     ctx.beginPath();
     ctx.moveTo(CELL_WIDTH_PX/2, 0);
@@ -91,9 +89,9 @@ function drawCellAt(ctx: CanvasRenderingContext2D,
     ctx.closePath();
     ctx.stroke();
 
-    if (isSelected) {
-        ctx.fill();
-    }
+    ctx.fillStyle = isSelected ? "red" : "white";
+    ctx.fill();
+    ctx.fillStyle = "black";
 
     if (value !== undefined) {
         const text = value+"";
@@ -106,7 +104,30 @@ function drawCellAt(ctx: CanvasRenderingContext2D,
     return polygon;
 }
 
-function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
+function drawTileInBoard(ctx: CanvasRenderingContext2D,
+                         value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
+    const xOffset = CELL_WIDTH_PX*x;
+    const yOffset = 3*CELL_WIDTH_PX/4*y;
+    return drawTile(ctx, value, isSelected, xOffset, yOffset);
+}
+
+function draw(ctx: CanvasRenderingContext2D): Polygon[] {
+    drawBoard(ctx);
+    return drawTiles(ctx);
+}
+
+function drawBoard(ctx: CanvasRenderingContext2D): void {
+    let rowIdx = 0;
+    for (const row of rows) {
+        for (let i=0;i<row.items;i++) {
+            drawTileInBoard(ctx, undefined,
+                       false, row.x+i, rowIdx);
+        }
+        ++rowIdx;
+    }
+}
+
+function drawTiles(ctx: CanvasRenderingContext2D): Polygon[] {
     let idx = 0;
     let polygons = [];
     for (let tileIdx=0; tileIdx<appState.boardContents.length(); tileIdx++) {
@@ -115,11 +136,11 @@ function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
             const [rowIdx,colIdx] = cellIdxGetRowCol(tile.cellIdx);
             const row = rows.get(rowIdx).getOrThrow();
             polygons.push(
-                drawCellAt(ctx, idx+1,
+                drawTileInBoard(ctx, idx+1,
                            appState.selectedPolygon===idx, row.x+colIdx, rowIdx));
         } else {
             polygons.push(
-                drawCellAt(ctx, idx+1,
+                drawTile(ctx, idx+1,
                            appState.selectedPolygon===idx, tile.pos.x, tile.pos.y));
         }
         ++idx;
@@ -176,6 +197,7 @@ function onClick(canvas: HTMLCanvasElement) {
     return (event: MouseEvent) => {
         const x = event.pageX - canvas.offsetLeft;
         const y = event.pageY - canvas.offsetTop;
+        const wasSelected = appState.selectedPolygon;
         appState.selectedPolygon = undefined;
         for (let i=0;i<appState.polygons.length;i++) {
             if (isInConvexPolygon({x,y}, appState.polygons[i])) {
@@ -183,7 +205,18 @@ function onClick(canvas: HTMLCanvasElement) {
                 break;
             }
         }
-        drawBoard(Option.ofNullable(canvas.getContext("2d"))
+        if (wasSelected !== undefined && (wasSelected === appState.selectedPolygon)) {
+            // user clicked on the selected polygon, unselect it.
+            appState.selectedPolygon = undefined;
+        } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
+            // user wanted to move the selected polygon to another spot
+            // TODO could be in the board...
+            appState = {...appState, boardContents : appState.boardContents
+                        .replace(wasSelected,
+                                 { kind: "out_of_board",
+                                   pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}})};
+        }
+        draw(Option.ofNullable(canvas.getContext("2d"))
                   .getOrThrow("onClick: failed to get the canvas context"));
     };
 }
@@ -199,5 +232,5 @@ window.onload = () => {
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
 
-    appState.polygons = drawBoard(ctx);
+    appState.polygons = draw(ctx);
 };
