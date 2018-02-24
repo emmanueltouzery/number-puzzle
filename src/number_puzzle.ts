@@ -201,45 +201,58 @@ function getSelected(polygons: Polygon[], x:number, y:number): number|undefined 
     return undefined;
 }
 
-function onClick(canvas: HTMLCanvasElement) {
-    return (event: MouseEvent) => {
-        const x = event.pageX - canvas.offsetLeft;
-        const y = event.pageY - canvas.offsetTop;
-        const wasSelected = appState.selectedPolygon;
-        appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
-        const clickedBoardCell = appState.selectedPolygon !== undefined ? undefined :
-            getSelected(appState.boardPolygons, x, y);
-        if (wasSelected !== undefined && (wasSelected === appState.selectedPolygon)) {
-            // user clicked on the selected polygon, unselect it.
-            appState.selectedPolygon = undefined;
-        } else if (wasSelected !== undefined && clickedBoardCell !== undefined) {
-            // user moved a tile on an empty board cell. move the tile there.
-            const newBoard =  appState.tilePositions
-                .replace(wasSelected,
-                         { kind: "in_board",
-                           cellIdx: clickedBoardCell});
-            appState.tilePositions = newBoard;
-        } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
-            // user wanted to move the selected polygon to another spot
-            const newBoard =  appState.tilePositions
-                .replace(wasSelected,
-                         { kind: "out_of_board",
-                           pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}});
-            appState.tilePositions = newBoard;
-        } else if (wasSelected !== undefined && appState.selectedPolygon !== undefined) {
-            // user clicked on another tile tile. switch them
-            const myPos = appState.tilePositions.get(wasSelected).getOrThrow();
-            const hisPos = appState.tilePositions.get(appState.selectedPolygon).getOrThrow();
-            const newBoard = appState.tilePositions
-                .replace(wasSelected, hisPos)
-                .replace(appState.selectedPolygon, myPos);
-            appState.tilePositions = newBoard;
-            appState.selectedPolygon = undefined;
-        }
-        // TODO tile was outside of board, is moved in board
-        appState.tilePolygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
-                  .getOrThrow("onClick: failed to get the canvas context")).tilePolygons;
-    };
+function onMouseDown(canvas: HTMLCanvasElement, event: MouseEvent) {
+    const x = event.pageX - canvas.offsetLeft;
+    const y = event.pageY - canvas.offsetTop;
+    appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
+}
+
+function onMove(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
+    if (!appState.selectedPolygon) {
+        return;
+    }
+    const x = event.pageX - canvas.offsetLeft;
+    const y = event.pageY - canvas.offsetTop;
+    drawTile(ctx, appState.selectedPolygon+1, false, x-CELL_WIDTH_PX/2, y-CELL_WIDTH_PX/2);
+}
+
+function onClick(canvas: HTMLCanvasElement, event: MouseEvent) {
+    const x = event.pageX - canvas.offsetLeft;
+    const y = event.pageY - canvas.offsetTop;
+    const wasSelected = appState.selectedPolygon;
+    appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
+    const clickedBoardCell = appState.selectedPolygon !== undefined ? undefined :
+        getSelected(appState.boardPolygons, x, y);
+    if (wasSelected !== undefined && (wasSelected === appState.selectedPolygon)) {
+        // user clicked on the selected polygon, unselect it.
+        appState.selectedPolygon = undefined;
+    } else if (wasSelected !== undefined && clickedBoardCell !== undefined) {
+        // user moved a tile on an empty board cell. move the tile there.
+        const newBoard =  appState.tilePositions
+            .replace(wasSelected,
+                     { kind: "in_board",
+                       cellIdx: clickedBoardCell});
+        appState.tilePositions = newBoard;
+    } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
+        // user wanted to move the selected polygon to another spot
+        const newBoard =  appState.tilePositions
+            .replace(wasSelected,
+                     { kind: "out_of_board",
+                       pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}});
+        appState.tilePositions = newBoard;
+    } else if (wasSelected !== undefined && appState.selectedPolygon !== undefined) {
+        // user clicked on another tile tile. switch them
+        const myPos = appState.tilePositions.get(wasSelected).getOrThrow();
+        const hisPos = appState.tilePositions.get(appState.selectedPolygon).getOrThrow();
+        const newBoard = appState.tilePositions
+            .replace(wasSelected, hisPos)
+            .replace(appState.selectedPolygon, myPos);
+        appState.tilePositions = newBoard;
+        appState.selectedPolygon = undefined;
+    }
+    // TODO tile was outside of board, is moved in board
+    appState.tilePolygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
+                                 .getOrThrow("onClick: failed to get the canvas context")).tilePolygons;
 }
 
 window.onload = () => {
@@ -247,11 +260,14 @@ window.onload = () => {
         .filter(instanceOf(HTMLCanvasElement))
         .getOrThrow("Cannot find the canvas element!");
 
-    canvas.addEventListener('click', onClick(canvas), false);
-
     const ctx = Option.ofNullable(canvas.getContext("2d"))
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
+
+    let mouseDown = false;
+    canvas.addEventListener('mousedown', evt => {mouseDown = true; onMouseDown(canvas, evt)}, false);
+    canvas.addEventListener('mousemove', evt => { if (mouseDown) {onMove(canvas, ctx, evt)} }, false);
+    canvas.addEventListener('mouseup', evt => {mouseDown = false; onClick(canvas, evt);}, false);
 
     const polygons = draw(canvas, ctx);
     appState.boardPolygons = polygons.boardPolygons;
