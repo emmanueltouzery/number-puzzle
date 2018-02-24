@@ -1,11 +1,11 @@
-import { Option, instanceOf, LinkedList, Stream } from "prelude.ts";
+import { Option, instanceOf, Vector, Stream } from "prelude.ts";
 
 const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
 const FONT = "33px Arial";
 
 type Point={x:number,y:number};
-type Vector=[Point,Point];
+type Vec=[Point,Point];
 type Polygon=Point[];
 
 // the board layout is:
@@ -22,8 +22,8 @@ type Polygon=Point[];
 // the first row starts are (x,y) 1,0
 // second row: (0.5, 1)
 // third row: (0, 2), ...
-const rows = LinkedList.of(
-    { x: 1, y: 0, items: 3},
+const rows = Vector.of(
+    { x: 1, y: 0, items: 3}, // get rid of y?
     { x: 0.5, y: 1, items: 4},
     { x: 0, y: 2, items: 5},
     { x: 0.5, y: 3, items: 4},
@@ -31,18 +31,37 @@ const rows = LinkedList.of(
 );
 const cellCount = rows.sumOn(cur=>cur.items);
 
+// list, one item per row on the board,
+// containing the start item index for that row
+const rowsStartItemIdx = 
+    rows.map(r=>r.items).foldLeft(
+        {itemsCount:0,rows:Vector.empty<number>()},
+        (sofar,cur) => ({itemsCount:sofar.itemsCount+cur,
+                         rows:sofar.rows.append(sofar.itemsCount)})).rows;
+
+
+interface InBoardPosition {kind:"in_board", cellIdx:number};
+interface OutOfBoardPosition {kind:"out_of_board", pos:Point};
+type TilePosition = InBoardPosition | OutOfBoardPosition;
+
 interface AppState {
-    boardContents: Array<number|undefined>;
+    boardContents: Vector<TilePosition>;
     polygons: Polygon[];
     selectedPolygon: number|undefined;
 }
 
 let appState: AppState = {
-    boardContents:
-        Stream.iterate(1,i=>i+1).take(cellCount).shuffle().toArray(),
+    boardContents: Stream.iterate(0,i=>i+1)
+        .take(cellCount).shuffle()
+        .map<TilePosition>(x => ({kind:"in_board",cellIdx:x})).toVector(),
     polygons: [],
     selectedPolygon: undefined
 };
+
+function cellIdxGetRowCol(cellIdx: number): [number,number] {
+    const rowsBefore = rowsStartItemIdx.takeWhile(startIdx => startIdx <= cellIdx);
+    return [rowsBefore.length()-1, cellIdx-rowsBefore.last().getOrThrow()];
+}
 
 function drawCellAt(ctx: CanvasRenderingContext2D,
                     value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
@@ -76,7 +95,7 @@ function drawCellAt(ctx: CanvasRenderingContext2D,
         ctx.fill();
     }
 
-    if (value) {
+    if (value !== undefined) {
         const text = value+"";
         const metrics = ctx.measureText(text);
         ctx.fillText(
@@ -87,30 +106,36 @@ function drawCellAt(ctx: CanvasRenderingContext2D,
     return polygon;
 }
 
-
 function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
     let idx = 0;
     let polygons = [];
-    for (const row of rows) {
-        for (let i=0; i<row.items;i++) {
+    for (let tileIdx=0; tileIdx<appState.boardContents.length(); tileIdx++) {
+        const tile = appState.boardContents.get(tileIdx).getOrThrow();
+        if (tile.kind === "in_board") {
+            const [rowIdx,colIdx] = cellIdxGetRowCol(tile.cellIdx);
+            const row = rows.get(rowIdx).getOrThrow();
             polygons.push(
-                drawCellAt(ctx, appState.boardContents[idx],
-                           appState.selectedPolygon===idx, row.x+i, row.y));
-            ++idx;
+                drawCellAt(ctx, idx+1,
+                           appState.selectedPolygon===idx, row.x+colIdx, rowIdx));
+        } else {
+            polygons.push(
+                drawCellAt(ctx, idx+1,
+                           appState.selectedPolygon===idx, tile.pos.x, tile.pos.y));
         }
+        ++idx;
     }
     return polygons;
 }
 
-function vectorX(v: Vector): number {
+function vectorX(v: Vec): number {
     return v[1].x - v[0].x;
 }
 
-function vectorY(v: Vector): number {
+function vectorY(v: Vec): number {
     return v[1].y - v[0].y;
 }
 
-function crossProduct(v1: Vector, v2: Vector): number {
+function crossProduct(v1: Vec, v2: Vec): number {
     return vectorX(v1)*vectorY(v2) - vectorY(v1)*vectorX(v2);
 }
 
