@@ -52,7 +52,8 @@ let appState = {
         .map<TilePosition>(x => ({kind:"in_board",cellIdx:x})).toVector(),
     boardPolygons: <Polygon[]>[],
     tilePolygons: <Polygon[]>[],
-    selectedPolygon: <number|undefined>undefined
+    selectedPolygon: <number|undefined>undefined,
+    displayHints: false
 };
 
 function cellIdxGetRowCol(cellIdx: number): [number,number] {
@@ -108,14 +109,14 @@ function drawTileInBoard(ctx: CanvasRenderingContext2D,
     return drawTile(ctx, value, isSelected, xOffset, yOffset);
 }
 
-function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, options?: {skipTile: number}): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
+function drawAndCheckForWin(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, options?: {skipTile: number}): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const boardPolygons = drawBoard(ctx, options);
+    const boardPolygons = drawBoardAndCheckForWin(ctx, options);
     return {boardPolygons, tilePolygons: drawTiles(ctx, options)};
 }
 
-function drawRowTotal(ctx: CanvasRenderingContext2D, rowIdx: number,
+function computeDrawRowTotal(ctx: CanvasRenderingContext2D, rowIdx: number,
                       row: {x:number,items:number}, options?: {skipTile:number}): number {
     const rowTotal = appState.tilePositions
         .zipWithIndex()
@@ -123,14 +124,16 @@ function drawRowTotal(ctx: CanvasRenderingContext2D, rowIdx: number,
         .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"))
         .filter(p => cellIdxGetRowCol(p[0].cellIdx)[0] === rowIdx)
         .sumOn(p => p[1]+1);
-    ctx.fillStyle = rowTotal === 38 ? "green" : (rowTotal > 38 ? "red" : "orange");
-    ctx.fillText(rowTotal+"",
-                 (row.x+row.items)*CELL_WIDTH_PX+HINTS_SPACING_X,
-                 rowIdx*(CELL_WIDTH_PX*3/4)+TEXT_VERTICAL_OFFSET);
+    if (appState.displayHints) {
+        ctx.fillStyle = rowTotal === 38 ? "green" : (rowTotal > 38 ? "red" : "orange");
+        ctx.fillText(rowTotal+"",
+                     (row.x+row.items)*CELL_WIDTH_PX+HINTS_SPACING_X,
+                     rowIdx*(CELL_WIDTH_PX*3/4)+TEXT_VERTICAL_OFFSET);
+    }
     return rowTotal;
 }
 
-function drawBoard(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
+function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
     let polygons = [];
     let rowIdx = 0;
     let isWin = true;
@@ -140,7 +143,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, options?: {skipTile: number}):
                 ctx, undefined,
                 false, row.x+i, rowIdx));
         }
-        if (drawRowTotal(ctx, rowIdx, row, options) !== 38) {
+        if (computeDrawRowTotal(ctx, rowIdx, row, options) !== 38) {
             isWin = false;
         }
         ++rowIdx;
@@ -235,7 +238,7 @@ function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingC
     if (appState.selectedPolygon !== undefined) {
     // repaint the backbuffer without the selected tile
     // since we'll paint it following the mouse movements
-        draw(backBuffer, backBufCtx, {skipTile: appState.selectedPolygon});
+        drawAndCheckForWin(backBuffer, backBufCtx, {skipTile: appState.selectedPolygon});
     }
 }
 
@@ -284,7 +287,7 @@ function onClick(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingConte
         appState.tilePositions = newBoard;
         appState.selectedPolygon = undefined;
     }
-    appState.tilePolygons = draw(backBuffer, backBufCtx).tilePolygons;
+    appState.tilePolygons = drawAndCheckForWin(backBuffer, backBufCtx).tilePolygons;
     ctx.drawImage(backBuffer, 0, 0);
 }
 
@@ -311,8 +314,14 @@ window.onload = () => {
         if (mouseDown) {onMove(backBuffer, canvas, ctx, evt)} }, false);
     canvas.addEventListener('mouseup', evt => {
         mouseDown = false; onClick(backBuffer, backBufCtx, canvas, ctx, evt);}, false);
+    // double click to toggle hints
+    canvas.addEventListener('dblclick', () => {
+        appState.displayHints = !appState.displayHints;
+        drawAndCheckForWin(backBuffer, backBufCtx);
+        ctx.drawImage(backBuffer, 0, 0);
+    });
 
-    const polygons = draw(backBuffer, backBufCtx);
+    const polygons = drawAndCheckForWin(backBuffer, backBufCtx);
     ctx.drawImage(backBuffer, 0, 0);
     appState.boardPolygons = polygons.boardPolygons;
     appState.tilePolygons = polygons.tilePolygons;
