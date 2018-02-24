@@ -1,4 +1,4 @@
-import { Option, instanceOf, LinkedList } from "prelude.ts";
+import { Option, instanceOf, LinkedList, Stream } from "prelude.ts";
 
 const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
@@ -7,6 +7,42 @@ const FONT = "33px Arial";
 type Point={x:number,y:number};
 type Vector=[Point,Point];
 type Polygon=Point[];
+
+// the board layout is:
+//   xxx
+//   xxxx
+//  xxxxx
+//   xxxx
+//   xxx
+// rows are: 3 cells, 4 cells, 5 cells, 4, cells, 3 cells.
+// for the columns, we base the coordinates on the central
+// 5-cells row. its left is x 0.
+// for the y, we start on the top row.
+// we have fractional coordinates.
+// the first row starts are (x,y) 1,0
+// second row: (0.5, 1)
+// third row: (0, 2), ...
+const rows = LinkedList.of(
+    { x: 1, y: 0, items: 3},
+    { x: 0.5, y: 1, items: 4},
+    { x: 0, y: 2, items: 5},
+    { x: 0.5, y: 3, items: 4},
+    { x: 1, y: 4, items: 3}
+);
+const cellCount = rows.sumOn(cur=>cur.items);
+
+interface AppState {
+    boardContents: Array<number|undefined>;
+    polygons: Polygon[];
+    selectedPolygon: number|undefined;
+}
+
+let appState: AppState = {
+    boardContents:
+        Stream.iterate(1,i=>i+1).take(cellCount).shuffle().toArray(),
+    polygons: [],
+    selectedPolygon: undefined
+};
 
 function drawCellAt(ctx: CanvasRenderingContext2D,
                     value: number|undefined, isSelected: boolean, x: number, y: number): Polygon {
@@ -51,34 +87,6 @@ function drawCellAt(ctx: CanvasRenderingContext2D,
     return polygon;
 }
 
-// the board layout is:
-//   xxx
-//   xxxx
-//  xxxxx
-//   xxxx
-//   xxx
-// rows are: 3 cells, 4 cells, 5 cells, 4, cells, 3 cells.
-// for the columns, we base the coordinates on the central
-// 5-cells row. its left is x 0.
-// for the y, we start on the top row.
-// we have fractional coordinates.
-// the first row starts are (x,y) 1,0
-// second row: (0.5, 1)
-// third row: (0, 2), ...
-const rows = LinkedList.of(
-    { x: 1, y: 0, items: 3},
-    { x: 0.5, y: 1, items: 4},
-    { x: 0, y: 2, items: 5},
-    { x: 0.5, y: 3, items: 4},
-    { x: 1, y: 4, items: 3}
-);
-const cellCount = rows.sumOn(cur=>cur.items);
-
-const boardContents = new Array<number|undefined>(cellCount);
-
-let polygons: Polygon[] = [];
-
-let selectedPolygon: number|undefined = undefined;
 
 function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
     let idx = 0;
@@ -86,8 +94,8 @@ function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
     for (const row of rows) {
         for (let i=0; i<row.items;i++) {
             polygons.push(
-                drawCellAt(ctx, boardContents[idx],
-                           selectedPolygon===idx, row.x+i, row.y));
+                drawCellAt(ctx, appState.boardContents[idx],
+                           appState.selectedPolygon===idx, row.x+i, row.y));
             ++idx;
         }
     }
@@ -143,10 +151,10 @@ function onClick(canvas: HTMLCanvasElement) {
     return (event: MouseEvent) => {
         const x = event.pageX - canvas.offsetLeft;
         const y = event.pageY - canvas.offsetTop;
-        selectedPolygon = undefined;
-        for (let i=0;i<polygons.length;i++) {
-            if (isInConvexPolygon({x,y}, polygons[i])) {
-                selectedPolygon = i;
+        appState.selectedPolygon = undefined;
+        for (let i=0;i<appState.polygons.length;i++) {
+            if (isInConvexPolygon({x,y}, appState.polygons[i])) {
+                appState.selectedPolygon = i;
                 break;
             }
         }
@@ -166,5 +174,5 @@ window.onload = () => {
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
 
-    polygons = drawBoard(ctx);
+    appState.polygons = drawBoard(ctx);
 };
