@@ -124,6 +124,13 @@ const allDiagonal1Indexes = Vector.of(
     HashSet.of(1, 5, 10, 15),
     HashSet.of(2, 6, 11));
 
+const allDiagonal2Indexes = Vector.of(
+    HashSet.of(0, 3, 7),
+    HashSet.of(1, 4, 8, 12),
+    HashSet.of(2, 5, 9, 13, 16),
+    HashSet.of(6, 10, 14, 17),
+    HashSet.of(11, 15, 18));
+
 function drawTotalCheckDisqualifiesWin(
     ctx: CanvasRenderingContext2D, rowIdx: number,
     row: {x:number,items:number}, options?: {skipTile:number}): boolean {
@@ -175,8 +182,29 @@ function drawTotalCheckDisqualifiesWin(
         ctx.restore();
     }
 
+    // top-right->bottom left totals
+    const diag2indexes = allDiagonal2Indexes.get(rowIdx).getOrThrow();
+    const diag2Total = positionsToConsider
+        .filter(p => diag2indexes.contains(p[0].cellIdx))
+        .sumOn(p => p[1]+1);
+    if (appState.displayHints) {
+        ctx.save();
+        const [row,col] = cellIdxGetRowCol(
+            allDiagonal2Indexes.get(rowIdx).getOrThrow().toArray({sortOn:x=>cellCount-x})[0]);
+        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_PX,
+                      row*(CELL_WIDTH_PX*3/4)+CELL_WIDTH_PX/2+CANVAS_PADDING_PX);
+        ctx.beginPath();
+        const metrics = ctx.measureText(diag2Total+"");
+        ctx.moveTo(HINTS_SPACING_X+metrics.width+5, CELL_WIDTH_PX/2);
+        ctx.lineTo(HINTS_SPACING_X+metrics.width+5+10, CELL_WIDTH_PX/2-10);
+        ctx.stroke();
+        drawTotal(diag2Total);
+        ctx.restore();
+    }
+
     return rowTotal !== diag1Total ||
-        diag1Total !== 38;
+        diag1Total !== 38 ||
+        diag2Total !== 38;
 }
 
 function drawBoardAndCheckForWin(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
