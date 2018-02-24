@@ -49,7 +49,8 @@ let appState = {
     tilePositions: Stream.iterate(0,i=>i+1)
         .take(cellCount).shuffle()
         .map<TilePosition>(x => ({kind:"in_board",cellIdx:x})).toVector(),
-    polygons: <Polygon[]>[],
+    boardPolygons: <Polygon[]>[],
+    tilePolygons: <Polygon[]>[],
     selectedPolygon: <number|undefined>undefined
 };
 
@@ -106,22 +107,25 @@ function drawTileInBoard(ctx: CanvasRenderingContext2D,
     return drawTile(ctx, value, isSelected, xOffset, yOffset);
 }
 
-function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): Polygon[] {
+function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawBoard(ctx);
-    return drawTiles(ctx);
+    const boardPolygons = drawBoard(ctx);
+    return {boardPolygons, tilePolygons: drawTiles(ctx)};
 }
 
-function drawBoard(ctx: CanvasRenderingContext2D): void {
+function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
+    let polygons = [];
     let rowIdx = 0;
     for (const row of rows) {
         for (let i=0;i<row.items;i++) {
-            drawTileInBoard(ctx, undefined,
-                       false, row.x+i, rowIdx);
+            polygons.push(drawTileInBoard(
+                ctx, undefined,
+                false, row.x+i, rowIdx));
         }
         ++rowIdx;
     }
+    return polygons;
 }
 
 function drawTiles(ctx: CanvasRenderingContext2D): Polygon[] {
@@ -188,21 +192,33 @@ function isInConvexPolygon(testPoint: Point, polygon: Polygon): boolean {
     return true;
 }
 
+function getSelected(polygons: Polygon[], x:number, y:number): number|undefined {
+    for (let i=0;i<polygons.length;i++) {
+        if (isInConvexPolygon({x,y}, polygons[i])) {
+            return i;
+        }
+    }
+    return undefined;
+}
+
 function onClick(canvas: HTMLCanvasElement) {
     return (event: MouseEvent) => {
         const x = event.pageX - canvas.offsetLeft;
         const y = event.pageY - canvas.offsetTop;
         const wasSelected = appState.selectedPolygon;
-        appState.selectedPolygon = undefined;
-        for (let i=0;i<appState.polygons.length;i++) {
-            if (isInConvexPolygon({x,y}, appState.polygons[i])) {
-                appState.selectedPolygon = i;
-                break;
-            }
-        }
+        appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
+        const clickedBoardCell = appState.selectedPolygon !== undefined ? undefined :
+            getSelected(appState.boardPolygons, x, y);
         if (wasSelected !== undefined && (wasSelected === appState.selectedPolygon)) {
             // user clicked on the selected polygon, unselect it.
             appState.selectedPolygon = undefined;
+        } else if (wasSelected !== undefined && clickedBoardCell !== undefined) {
+            // user moved a tile on an empty board cell. move the tile there.
+            const newBoard =  appState.tilePositions
+                .replace(wasSelected,
+                         { kind: "in_board",
+                           cellIdx: clickedBoardCell});
+            appState.tilePositions = newBoard;
         } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
             // user wanted to move the selected polygon to another spot
             const newBoard =  appState.tilePositions
@@ -221,8 +237,8 @@ function onClick(canvas: HTMLCanvasElement) {
             appState.selectedPolygon = undefined;
         }
         // TODO tile was outside of board, is moved in board
-        appState.polygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
-                  .getOrThrow("onClick: failed to get the canvas context"));
+        appState.tilePolygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
+                  .getOrThrow("onClick: failed to get the canvas context")).tilePolygons;
     };
 }
 
@@ -237,5 +253,7 @@ window.onload = () => {
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
 
-    appState.polygons = draw(canvas, ctx);
+    const polygons = draw(canvas, ctx);
+    appState.boardPolygons = polygons.boardPolygons;
+    appState.tilePolygons = polygons.tilePolygons;
 };
