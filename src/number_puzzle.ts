@@ -107,11 +107,11 @@ function drawTileInBoard(ctx: CanvasRenderingContext2D,
     return drawTile(ctx, value, isSelected, xOffset, yOffset);
 }
 
-function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
+function draw(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, options?: {skipTile: number}): {boardPolygons:Polygon[], tilePolygons:Polygon[]} {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const boardPolygons = drawBoard(ctx);
-    return {boardPolygons, tilePolygons: drawTiles(ctx)};
+    return {boardPolygons, tilePolygons: drawTiles(ctx, options)};
 }
 
 function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
@@ -128,9 +128,12 @@ function drawBoard(ctx: CanvasRenderingContext2D): Polygon[] {
     return polygons;
 }
 
-function drawTiles(ctx: CanvasRenderingContext2D): Polygon[] {
+function drawTiles(ctx: CanvasRenderingContext2D, options?: {skipTile: number}): Polygon[] {
     let polygons = [];
     for (let tileIdx=0; tileIdx<appState.tilePositions.length(); tileIdx++) {
+        if (options && tileIdx === options.skipTile) {
+            continue;
+        }
         const tile = appState.tilePositions.get(tileIdx).getOrThrow();
         if (tile.kind === "in_board") {
             const [rowIdx,colIdx] = cellIdxGetRowCol(tile.cellIdx);
@@ -201,22 +204,30 @@ function getSelected(polygons: Polygon[], x:number, y:number): number|undefined 
     return undefined;
 }
 
-function onMouseDown(canvas: HTMLCanvasElement, event: MouseEvent) {
+function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
+                     canvas: HTMLCanvasElement, event: MouseEvent) {
     const x = event.pageX - canvas.offsetLeft;
     const y = event.pageY - canvas.offsetTop;
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
+    if (appState.selectedPolygon !== undefined) {
+    // repaint the backbuffer without the selected tile
+    // since we'll paint it following the mouse movements
+        draw(backBuffer, backBufCtx, {skipTile: appState.selectedPolygon});
+    }
 }
 
-function onMove(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
-    if (!appState.selectedPolygon) {
+function onMove(backBuffer: HTMLCanvasElement, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
+    if (appState.selectedPolygon === undefined) {
         return;
     }
     const x = event.pageX - canvas.offsetLeft;
     const y = event.pageY - canvas.offsetTop;
+    ctx.drawImage(backBuffer, 0, 0);
     drawTile(ctx, appState.selectedPolygon+1, false, x-CELL_WIDTH_PX/2, y-CELL_WIDTH_PX/2);
 }
 
-function onClick(canvas: HTMLCanvasElement, event: MouseEvent) {
+function onClick(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
+                 canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
     const x = event.pageX - canvas.offsetLeft;
     const y = event.pageY - canvas.offsetTop;
     const wasSelected = appState.selectedPolygon;
@@ -250,9 +261,8 @@ function onClick(canvas: HTMLCanvasElement, event: MouseEvent) {
         appState.tilePositions = newBoard;
         appState.selectedPolygon = undefined;
     }
-    // TODO tile was outside of board, is moved in board
-    appState.tilePolygons = draw(canvas, Option.ofNullable(canvas.getContext("2d"))
-                                 .getOrThrow("onClick: failed to get the canvas context")).tilePolygons;
+    appState.tilePolygons = draw(backBuffer, backBufCtx).tilePolygons;
+    ctx.drawImage(backBuffer, 0, 0);
 }
 
 window.onload = () => {
@@ -260,16 +270,27 @@ window.onload = () => {
         .filter(instanceOf(HTMLCanvasElement))
         .getOrThrow("Cannot find the canvas element!");
 
+    const backBuffer = document.createElement("canvas");
+    backBuffer.width = canvas.width;
+    backBuffer.height = canvas.height;
+    const backBufCtx = Option.ofNullable(backBuffer.getContext("2d"))
+        .getOrThrow("Can't get the 2d context for the backbuffer canvas!");
+
     const ctx = Option.ofNullable(canvas.getContext("2d"))
         .getOrThrow("Can't get the 2d context for the canvas!");
     ctx.font = FONT;
+    backBufCtx.font = FONT;
 
     let mouseDown = false;
-    canvas.addEventListener('mousedown', evt => {mouseDown = true; onMouseDown(canvas, evt)}, false);
-    canvas.addEventListener('mousemove', evt => { if (mouseDown) {onMove(canvas, ctx, evt)} }, false);
-    canvas.addEventListener('mouseup', evt => {mouseDown = false; onClick(canvas, evt);}, false);
+    canvas.addEventListener('mousedown', evt => {
+        mouseDown = true; onMouseDown(backBuffer, backBufCtx, canvas, evt)}, false);
+    canvas.addEventListener('mousemove', evt => {
+        if (mouseDown) {onMove(backBuffer, canvas, ctx, evt)} }, false);
+    canvas.addEventListener('mouseup', evt => {
+        mouseDown = false; onClick(backBuffer, backBufCtx, canvas, ctx, evt);}, false);
 
-    const polygons = draw(canvas, ctx);
+    const polygons = draw(backBuffer, backBufCtx);
+    ctx.drawImage(backBuffer, 0, 0);
     appState.boardPolygons = polygons.boardPolygons;
     appState.tilePolygons = polygons.tilePolygons;
 };
