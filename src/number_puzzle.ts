@@ -1,4 +1,4 @@
-import { Option, instanceOf, Vector, Stream, HashSet, TypeGuard } from "prelude.ts";
+import { Option, instanceOf, Vector, Stream, HashSet, typeGuard } from "prelude.ts";
 
 const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
@@ -141,7 +141,7 @@ function drawTotalCheckDisqualifiesWin(
     const positionsToConsider = appState.tilePositions
         .zipWithIndex()
         .filter(tileWithIndex => options ? options.skipTile !== tileWithIndex[1] : true)
-        .filter(<TypeGuard<[InBoardPosition,number]>>(p => p[0].kind === "in_board"));
+        .filter(typeGuard(p => p[0].kind === "in_board", {} as [InBoardPosition,number]));
 
     const drawTotal = (val:number) => {
         ctx.fillStyle = val === WINNING_TOTAL ? "green" : (val > WINNING_TOTAL ? "red" : "orange");
