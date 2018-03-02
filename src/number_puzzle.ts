@@ -36,7 +36,7 @@ const cellCount = rows.sumOn(cur=>cur.items);
 
 // list, one item per row on the board,
 // containing the start item index for that row
-const rowsStartItemIdx = 
+const rowsStartItemIdx =
     rows.map(r=>r.items).foldLeft(
         {itemsCount:0,rows:Vector.empty<number>()},
         (sofar,cur) => ({itemsCount:sofar.itemsCount+cur,
@@ -55,7 +55,7 @@ let appState = {
     boardPolygons: <Polygon[]>[],
     tilePolygons: <Polygon[]>[],
     selectedPolygon: <number|undefined>undefined,
-    displayHints: false
+    displayHints: new URLSearchParams(window.location.search).get("hints") === "1"
 };
 
 function cellIdxGetRowCol(cellIdx: number): [number,number] {
@@ -336,14 +336,15 @@ function getSelected(polygons: Polygon[], x:number, y:number): number|undefined 
     return undefined;
 }
 
-function getOnCanvasXY(canvas: HTMLCanvasElement, event: MouseEvent): [number,number] {
-    const x = event.pageX - canvas.offsetLeft;
-    const y = event.pageY - canvas.offsetTop;
-    return [x,y];
+function getOnCanvasXY(canvas: HTMLCanvasElement, event: MouseEvent|TouchEvent): [number,number] {
+    const [clickX,clickY] = event instanceof MouseEvent ?
+        [event.pageX, event.pageY] :
+        [event.touches[0].pageX, event.touches[0].pageY];
+    return [clickX - canvas.offsetLeft, clickY - canvas.offsetTop];
 }
 
-function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
-                     canvas: HTMLCanvasElement, event: MouseEvent) {
+function onDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
+                     canvas: HTMLCanvasElement, event: MouseEvent|TouchEvent) {
     const [x,y] = getOnCanvasXY(canvas, event);
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
     if (appState.selectedPolygon !== undefined) {
@@ -353,18 +354,19 @@ function onMouseDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingC
     }
 }
 
-function onMove(backBuffer: HTMLCanvasElement, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
-    if (appState.selectedPolygon === undefined) {
-        return;
-    }
+function onMove(backBuffer: HTMLCanvasElement, canvas: HTMLCanvasElement,
+                ctx: CanvasRenderingContext2D, event: MouseEvent|TouchEvent): [number,number] {
     const [x,y] = getOnCanvasXY(canvas, event);
+    if (appState.selectedPolygon === undefined) {
+        return [x,y];
+    }
     ctx.drawImage(backBuffer, 0, 0);
     drawTile(ctx, appState.selectedPolygon+1, false, x-CELL_WIDTH_PX/2, y-CELL_WIDTH_PX/2);
+    return [x,y];
 }
 
-function onClick(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
-                 canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, event: MouseEvent) {
-    const [x,y] = getOnCanvasXY(canvas, event);
+function onUp(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
+              ctx: CanvasRenderingContext2D, x: number, y: number) {
     const wasSelected = appState.selectedPolygon;
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
     const clickedBoardCell = appState.selectedPolygon !== undefined ? undefined :
@@ -417,12 +419,23 @@ window.onload = () => {
     backBufCtx.font = FONT;
 
     let mouseDown = false;
-    canvas.addEventListener('mousedown', evt => {
-        mouseDown = true; onMouseDown(backBuffer, backBufCtx, canvas, evt)}, false);
-    canvas.addEventListener('mousemove', evt => {
-        if (mouseDown) {onMove(backBuffer, canvas, ctx, evt)} }, false);
-    canvas.addEventListener('mouseup', evt => {
-        mouseDown = false; onClick(backBuffer, backBufCtx, canvas, ctx, evt);}, false);
+    const handleDownEvt = (evt:MouseEvent|TouchEvent) => {
+        mouseDown = true; onDown(backBuffer, backBufCtx, canvas, evt)};
+    canvas.addEventListener('touchstart', handleDownEvt, false);
+    canvas.addEventListener('mousedown', handleDownEvt, false);
+
+    let curX:number, curY:number;
+
+    const handleMoveEvt = (evt:MouseEvent|TouchEvent) => {
+        if (mouseDown) { [curX,curY] = onMove(backBuffer, canvas, ctx, evt)}};
+    canvas.addEventListener('mousemove', handleMoveEvt, false);
+    canvas.addEventListener('touchmove', handleMoveEvt, false);
+
+    const handleUpEvt = () => {
+        mouseDown = false; onUp(backBuffer, backBufCtx, ctx, curX, curY);};
+    canvas.addEventListener('mouseup', handleUpEvt, false);
+    canvas.addEventListener('touchend', handleUpEvt, false);
+
     // double click to toggle hints
     canvas.addEventListener('dblclick', () => {
         appState.displayHints = !appState.displayHints;
