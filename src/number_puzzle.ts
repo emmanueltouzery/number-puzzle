@@ -188,7 +188,7 @@ function drawTotalCheckDisqualifiesWin(
         ctx.beginPath();
         const metrics = ctx.measureText(diag1Total+"");
         ctx.moveTo(HINTS_SPACING_X+metrics.width+5, CELL_WIDTH_PX/2);
-        ctx.lineTo(HINTS_SPACING_X+metrics.width+5+CELL_WIDTH_PX/2, CELL_WIDTH_PX);
+        ctx.lineTo(HINTS_SPACING_X+metrics.width+5+10, CELL_WIDTH_PX/2+10);
         ctx.stroke();
         drawTotal(diag1Total);
         ctx.restore();
