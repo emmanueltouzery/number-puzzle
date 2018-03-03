@@ -4,7 +4,7 @@ const CELL_WIDTH_PX = 92;
 const TEXT_VERTICAL_OFFSET = 55;
 const HINTS_SPACING_X = 20;
 const FONT = "33px Arial";
-const CANVAS_PADDING_PX = 30;
+let CANVAS_PADDING_PX = 0; // will be overwritten during initialization
 const WINNING_TOTAL = 38;
 
 type Point={x:number,y:number};
@@ -406,6 +406,9 @@ window.onload = () => {
     const canvas = Option.ofNullable(document.getElementById("myCanvas"))
         .filter(instanceOf(HTMLCanvasElement))
         .getOrThrow("Cannot find the canvas element!");
+
+    // center the canvas horizontally
+    CANVAS_PADDING_PX = (canvas.width - CELL_WIDTH_PX*5)/2;
 
     const backBuffer = document.createElement("canvas");
     backBuffer.width = canvas.width;
