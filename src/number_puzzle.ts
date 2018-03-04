@@ -1,10 +1,12 @@
 import { Option, instanceOf, Vector, Stream, HashSet, typeGuard } from "prelude.ts";
 
-const CELL_WIDTH_PX = 92;
-const TEXT_VERTICAL_OFFSET = 55;
+let CELL_WIDTH_PX = 0; // will be overwritten during initialization
+let TEXT_VERTICAL_OFFSET = 0; // will be overwritten during initialization
 const HINTS_SPACING_X = 20;
-const FONT = "33px Arial";
-let CANVAS_PADDING_PX = 0; // will be overwritten during initialization
+const FONT = "px Arial";
+const FONT_WIDTH_PROPORTION_OF_CELL_PCENT = 20;
+let CANVAS_PADDING_X_PX = 0; // will be overwritten during initialization
+let CANVAS_PADDING_Y_PX = 0; // will be overwritten during initialization
 const WINNING_TOTAL = 38;
 
 type Point={x:number,y:number};
@@ -109,8 +111,8 @@ function drawTile(ctx: CanvasRenderingContext2D,
 function drawTileInBoard(ctx: CanvasRenderingContext2D,
                          value: number|undefined, isInWinningDiagonal: boolean,
                          x: number, y: number): Polygon {
-    const xOffset = CELL_WIDTH_PX*x + CANVAS_PADDING_PX;
-    const yOffset = 3*CELL_WIDTH_PX/4*y + CANVAS_PADDING_PX;
+    const xOffset = CELL_WIDTH_PX*x + CANVAS_PADDING_X_PX;
+    const yOffset = 3*CELL_WIDTH_PX/4*y + CANVAS_PADDING_Y_PX;
     return drawTile(ctx, value, isInWinningDiagonal, xOffset, yOffset);
 }
 
@@ -158,8 +160,8 @@ function drawTotalCheckDisqualifiesWin(
         .sumOn(p => p[1]+1);
     if (appState.displayHints) {
         ctx.save();
-        ctx.translate((row.x+row.items)*CELL_WIDTH_PX+CANVAS_PADDING_PX,
-                      rowIdx*(CELL_WIDTH_PX*3/4)+CANVAS_PADDING_PX);
+        ctx.translate((row.x+row.items)*CELL_WIDTH_PX+CANVAS_PADDING_X_PX,
+                      rowIdx*(CELL_WIDTH_PX*3/4)+CANVAS_PADDING_Y_PX);
         ctx.beginPath();
         ctx.moveTo(5, CELL_WIDTH_PX/2);
         ctx.lineTo(15, CELL_WIDTH_PX/2);
@@ -183,8 +185,8 @@ function drawTotalCheckDisqualifiesWin(
         ctx.save();
         const [row,col] = cellIdxGetRowCol(
             allDiagonal1Indexes.get(rowIdx).getOrThrow().toArray({sortOn:x=>x})[0]);
-        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_PX,
-                      row*(CELL_WIDTH_PX*3/4)-CELL_WIDTH_PX/2+CANVAS_PADDING_PX);
+        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_X_PX,
+                      row*(CELL_WIDTH_PX*3/4)-CELL_WIDTH_PX/2+CANVAS_PADDING_Y_PX);
         ctx.beginPath();
         const metrics = ctx.measureText(diag1Total+"");
         ctx.moveTo(HINTS_SPACING_X+metrics.width+5, CELL_WIDTH_PX/2);
@@ -209,8 +211,8 @@ function drawTotalCheckDisqualifiesWin(
         ctx.save();
         const [row,col] = cellIdxGetRowCol(
             allDiagonal2Indexes.get(rowIdx).getOrThrow().toArray({sortOn:x=>cellCount-x})[0]);
-        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_PX,
-                      row*(CELL_WIDTH_PX*3/4)+CELL_WIDTH_PX/2+CANVAS_PADDING_PX);
+        ctx.translate((rows.get(row).getOrThrow().x + col)*CELL_WIDTH_PX-CELL_WIDTH_PX/2+CANVAS_PADDING_X_PX,
+                      row*(CELL_WIDTH_PX*3/4)+CELL_WIDTH_PX/2+CANVAS_PADDING_Y_PX);
         ctx.beginPath();
         const metrics = ctx.measureText(diag2Total+"");
         ctx.moveTo(HINTS_SPACING_X+metrics.width+5, CELL_WIDTH_PX/2);
@@ -402,24 +404,55 @@ function onUp(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2
     ctx.drawImage(backBuffer, 0, 0);
 }
 
+function computeFontSize(ctx: CanvasRenderingContext2D): number {
+    const expectedWidth = CELL_WIDTH_PX*FONT_WIDTH_PROPORTION_OF_CELL_PCENT/100;
+    let measured = 0;
+    let curFontSize = 1;
+    while (measured < expectedWidth) {
+        ctx.font = curFontSize + FONT;
+        measured = ctx.measureText("1").width;
+        ++curFontSize;
+    }
+    return curFontSize;
+}
+
+function computeDimensions(canvas: HTMLCanvasElement, backBuffer: HTMLCanvasElement,
+                           backBufCtx: CanvasRenderingContext2D,
+                           ctx: CanvasRenderingContext2D): void {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    backBuffer.width = canvas.clientWidth;
+    backBuffer.height = canvas.clientHeight;
+
+    CELL_WIDTH_PX = Math.min(canvas.width/7, canvas.height/6);
+
+    // center the canvas horizontally
+    CANVAS_PADDING_X_PX = (canvas.width - CELL_WIDTH_PX*5)/2;
+    CANVAS_PADDING_Y_PX = (canvas.height - CELL_WIDTH_PX*4)/2;
+
+    // can't vertically measure text with canvas AFAICT
+    // so must approximate
+    TEXT_VERTICAL_OFFSET = CELL_WIDTH_PX/1.65;
+
+    const fontSize = computeFontSize(backBufCtx);
+
+    ctx.font = fontSize + FONT;
+    backBufCtx.font = fontSize + FONT;
+}
+
 window.onload = () => {
     const canvas = Option.ofNullable(document.getElementById("myCanvas"))
         .filter(instanceOf(HTMLCanvasElement))
         .getOrThrow("Cannot find the canvas element!");
 
-    // center the canvas horizontally
-    CANVAS_PADDING_PX = (canvas.width - CELL_WIDTH_PX*5)/2;
-
     const backBuffer = document.createElement("canvas");
-    backBuffer.width = canvas.width;
-    backBuffer.height = canvas.height;
     const backBufCtx = Option.ofNullable(backBuffer.getContext("2d"))
         .getOrThrow("Can't get the 2d context for the backbuffer canvas!");
 
     const ctx = Option.ofNullable(canvas.getContext("2d"))
         .getOrThrow("Can't get the 2d context for the canvas!");
-    ctx.font = FONT;
-    backBufCtx.font = FONT;
+
+    computeDimensions(canvas, backBuffer, backBufCtx, ctx);
 
     let mouseDown = false;
     const handleDownEvt = (evt:MouseEvent|TouchEvent) => {
@@ -450,4 +483,10 @@ window.onload = () => {
     ctx.drawImage(backBuffer, 0, 0);
     appState.boardPolygons = polygons.boardPolygons;
     appState.tilePolygons = polygons.tilePolygons;
+
+    window.onresize = () => {
+        computeDimensions(canvas, backBuffer, backBufCtx, ctx);
+        appState.tilePolygons = drawAndCheckForWin(backBuffer, backBufCtx).tilePolygons;
+        ctx.drawImage(backBuffer, 0, 0);
+    };
 };
