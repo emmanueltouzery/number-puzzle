@@ -486,7 +486,9 @@ window.onload = () => {
 
     window.onresize = () => {
         computeDimensions(canvas, backBuffer, backBufCtx, ctx);
-        appState.tilePolygons = drawAndCheckForWin(backBuffer, backBufCtx).tilePolygons;
+        const polygons = drawAndCheckForWin(backBuffer, backBufCtx);
+        appState.boardPolygons = polygons.boardPolygons;
+        appState.tilePolygons = polygons.tilePolygons;
         ctx.drawImage(backBuffer, 0, 0);
     };
 };
