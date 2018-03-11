@@ -345,13 +345,25 @@ function getOnCanvasXY(canvas: HTMLCanvasElement, event: MouseEvent|TouchEvent):
     return [clickX - canvas.offsetLeft, clickY - canvas.offsetTop];
 }
 
+/**
+ * clamp the coordinates to make sure a tile will stay 100%
+ * inside the playable area
+ */
+function clampedXY(canvas: HTMLCanvasElement,
+                   coords: {x:number,y:number}): {x:number,y:number} {
+    return {
+        x: Math.max(0, Math.min(coords.x-CELL_WIDTH_PX/2, canvas.width-CELL_WIDTH_PX)),
+        y: Math.max(0, Math.min(coords.y-CELL_WIDTH_PX/2, canvas.height-CELL_WIDTH_PX))
+    };
+}
+
 function onDown(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2D,
                      canvas: HTMLCanvasElement, event: MouseEvent|TouchEvent) {
     const [x,y] = getOnCanvasXY(canvas, event);
     appState.selectedPolygon = getSelected(appState.tilePolygons, x, y);
     if (appState.selectedPolygon !== undefined) {
-    // repaint the backbuffer without the selected tile
-    // since we'll paint it following the mouse movements
+        // repaint the backbuffer without the selected tile
+        // since we'll paint it following the mouse movements
         drawAndCheckForWin(backBuffer, backBufCtx, {skipTile: appState.selectedPolygon});
     }
 }
@@ -363,7 +375,8 @@ function onMove(backBuffer: HTMLCanvasElement, canvas: HTMLCanvasElement,
         return [x,y];
     }
     ctx.drawImage(backBuffer, 0, 0);
-    drawTile(ctx, appState.selectedPolygon+1, false, x-CELL_WIDTH_PX/2, y-CELL_WIDTH_PX/2);
+    const clampedCoords = clampedXY(canvas, {x,y});
+    drawTile(ctx, appState.selectedPolygon+1, false, clampedCoords.x, clampedCoords.y);
     return [x,y];
 }
 
@@ -385,10 +398,11 @@ function onUp(backBuffer: HTMLCanvasElement, backBufCtx: CanvasRenderingContext2
         appState.tilePositions = newBoard;
     } else if (wasSelected !== undefined && appState.selectedPolygon === undefined) {
         // user wanted to move the selected polygon to another spot
+        const clampedCoords = clampedXY(backBuffer, {x,y});
         const newBoard =  appState.tilePositions
             .replace(wasSelected,
                      { kind: "out_of_board",
-                       pos: {x:x-CELL_WIDTH_PX/2,y:y-CELL_WIDTH_PX/2}});
+                       pos: {x:clampedCoords.x,y:clampedCoords.y}});
         appState.tilePositions = newBoard;
     } else if (wasSelected !== undefined && appState.selectedPolygon !== undefined) {
         // user clicked on another tile tile. switch them
